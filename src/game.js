@@ -50,12 +50,8 @@ export class Game {
     this.renderer.toneMappingExposure = 1.05;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.pixelScale = 1;
     this.frameMs = 16;
     this.govTimer = 0;
-    this.slowScale = Infinity; // resolution scale that was last too slow
-    this.slowAt = -1e9;
-    this.lastScaleChange = -1e9;
     this.cap30 = false; // draw every other screen refresh on devices that can't keep 60 fps
     this.slowChecks = 0;
     this.running = false;
@@ -120,11 +116,24 @@ export class Game {
     });
     this.setScreenControls(state.screenControls);
 
-    window.addEventListener('resize', () => {
+    const refit = () => {
       this.setBasePixelRatio();
-      this.renderer.setPixelRatio(this.basePixelRatio * this.pixelScale);
+      this.renderer.setPixelRatio(this.basePixelRatio);
       this.resize();
-    });
+    };
+    window.addEventListener('resize', refit);
+    // The screen's pixel density can change without a resize (display settings, projector
+    // or whiteboard switched on, browser zoom): follow it, or the picture would turn blurry.
+    const watchDensity = () => {
+      const mq = matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+      const onChange = () => {
+        mq.removeEventListener('change', onChange);
+        refit();
+        watchDensity();
+      };
+      mq.addEventListener('change', onChange);
+    };
+    watchDensity();
     this.watchContext();
     bus.on('novoice', (lang) => {
       if (this.noVoiceShown) return;
@@ -148,7 +157,7 @@ export class Game {
   }
 
   // Changing the canvas size wipes it (it shows black until the next drawing), so the
-  // picture is drawn again right away. `redraw = false` when a frame is drawn next anyway.
+  // picture is drawn again right away.
   resize(redraw = true) {
     const w = window.innerWidth;
     const h = window.innerHeight;
@@ -182,7 +191,7 @@ export class Game {
   applyQuality() {
     const high = state.quality !== 'low';
     this.setBasePixelRatio();
-    this.renderer.setPixelRatio(this.basePixelRatio * this.pixelScale);
+    this.renderer.setPixelRatio(this.basePixelRatio);
     // Touch devices and older graphics cards (WebGL 1) get a smaller shadow map.
     const shadowSize = this.touchDevice || !this.webgl2 ? 1024 : 2048;
     const sun = this.world.env.sun;
@@ -203,53 +212,20 @@ export class Game {
     this.resize();
   }
 
-  // Keep the game smooth on slow computers. Runs only while visible, before the frame is
-  // drawn, so a resolution change never shows an empty (black) canvas.
-  // 1. A device that can't keep 60 fps draws every other screen refresh: an even 30 fps
-  //    looks much smoother than frames jumping between 20 and 60 fps.
-  // 2. Then the resolution goes down when even 30 fps is missed, and up when there is room,
-  //    but not back to a resolution that was too slow recently, and at most every 3 seconds.
-  governFrameRate(rawMs) {
-    // The title flyover shows the whole island at once; judge the speed in play only.
-    if (this.mode === 'title' || document.visibilityState !== 'visible' || rawMs > 1000) return;
+  // Keep the motion smooth without ever lowering the picture quality: the resolution stays
+  // fixed, whatever happens. A device that can't keep 60 fps draws every other screen refresh
+  // instead: an even 30 fps looks much smoother than frames jumping between 20 and 60.
+  // Runs only while visible, and not on the title flyover (it shows the whole island at once).
+  paceFrames(rawMs) {
+    if (this.cap30 || this.mode === 'title' || document.visibilityState !== 'visible' || rawMs > 1000) return;
     this.frameMs += (rawMs - this.frameMs) * 0.1;
     this.govTimer += rawMs / 1000;
     if (this.govTimer < 1.5) return;
     this.govTimer = 0;
-    if (!this.cap30) {
-      this.slowChecks = this.frameMs > 21 ? this.slowChecks + 1 : 0;
-      if (this.slowChecks >= 3) {
-        this.cap30 = true;
-        this.frameMs = 34;
-        document.body.classList.add('lowfx');
-        return;
-      }
-    }
-    const now = performance.now() / 1000;
-    if (now - this.lastScaleChange < 3) return;
-    // Never go below 0.4 of a CSS pixel: blurrier than that is worse than a slower frame.
-    // Software drawing is limited by the number of objects more than by pixels, so it stops at 0.5.
-    const minScale = Math.min(1, (this.gpu.software ? 0.5 : 0.4) / this.basePixelRatio);
-    let next = this.pixelScale;
-    if (this.cap30 && this.frameMs > 40 && this.pixelScale > minScale) {
-      next = Math.max(minScale, this.pixelScale * 0.85);
-      this.slowScale = this.pixelScale;
-      this.slowAt = now;
-    } else if (this.pixelScale < 1) {
-      const up = Math.min(1, this.pixelScale * 1.15);
-      const room = this.cap30 ? this.frameMs < 35.5 && (up < this.slowScale * 0.98 || now - this.slowAt > 90) : this.frameMs < 20;
-      if (room) next = up;
-    }
-    if (next !== this.pixelScale) {
-      this.pixelScale = next;
-      this.lastScaleChange = now;
-      this.renderer.setPixelRatio(this.basePixelRatio * this.pixelScale);
-      this.resize(false);
-    } else if (this.cap30 && this.frameMs > 60 && state.quality !== 'low' && !state.qualityChosen) {
-      state.quality = 'low';
-      save();
-      this.applyQuality();
-      this.hud.toast('🐢 ' + t('autoFast'), null, 6000);
+    this.slowChecks = this.frameMs > 21 ? this.slowChecks + 1 : 0;
+    if (this.slowChecks >= 3) {
+      this.cap30 = true;
+      document.body.classList.add('lowfx');
     }
   }
 
@@ -279,11 +255,6 @@ export class Game {
     this.canvas.addEventListener('webglcontextrestored', () => {
       this.contextLost = false;
       box.hidden = true;
-      if (!state.qualityChosen && state.quality !== 'low') {
-        state.quality = 'low';
-        save();
-        this.applyQuality();
-      }
     });
   }
 
@@ -328,13 +299,13 @@ export class Game {
     this.running = true;
     const loop = (now) => {
       requestAnimationFrame(loop);
-      // Even pacing on slow devices: skip every other screen refresh (see governFrameRate).
+      // Even pacing on slow devices: skip every other screen refresh (see paceFrames).
       if (this.cap30 && now - last < 1000 / 30 - 4) return;
       const raw = now - last;
       const dt = Math.min(0.05, raw / 1000);
       last = now;
       try {
-        if (this.render3D) this.governFrameRate(raw);
+        if (this.render3D) this.paceFrames(raw);
         this.tick(dt);
       } catch (err) {
         if (!this.loggedError) {
@@ -356,7 +327,6 @@ export class Game {
     // Start judging the frame rate fresh, after a short settling time.
     this.frameMs = 20;
     this.govTimer = -2;
-    this.slowScale = Infinity;
     this.slowChecks = 0;
     if (this.gpu.software && !state.qualityChosen) this.hud.toast('🐢 ' + t(/Windows/.test(navigator.userAgent) ? 'gpuSlow' : 'gpuSlowOther'), null, 10000);
     if (this.touch && window.innerHeight > window.innerWidth) this.hud.toast('📱 ' + t('rotateHint'), null, 7000);
