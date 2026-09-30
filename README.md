@@ -55,7 +55,12 @@ The game then uses the graphics card and picks **Pretty** graphics by itself. On
 
 On other computers, updating the graphics driver (Intel, AMD or NVIDIA) makes a huge difference. A nearly full hard drive can also make browsers misbehave.
 
-While playing, the game adjusts the resolution to keep the frame rate playable, and tries a sharper picture again when there is room.
+While playing, the game keeps the motion smooth by itself:
+
+- A device that can't keep 60 frames per second switches to an even **30 fps** (it draws every other screen refresh). That looks much smoother than frames jumping between 20 and 60.
+- If it misses even 30 fps, the resolution goes down a step; when there is room again, it tries a sharper picture. It changes the resolution at most every 3 seconds and doesn't go back to a resolution that was too slow in the last 90 seconds.
+- After every resize the picture is drawn again immediately, so the screen never flashes black (for example when an on-screen keyboard opens on a whiteboard).
+- Big screens (interactive whiteboards, 4K monitors) start at about 3 million pixels, which is sharp from a few meters away, instead of millions of extra pixels that school graphics chips can't draw.
 
 ## Controls
 
@@ -70,6 +75,8 @@ While playing, the game adjusts the resolution to keep the frame rate playable, 
 | Kick a ball | F | ⚽ button |
 | Teleport map | M | 🗺️ button |
 | Menu and settings | Esc | ☰ button |
+
+The on-screen controls turn on by themselves on touch screens. **Menu → On-screen controls** can also force them **On** (for interactive whiteboards that act like a mouse: then the mouse or pen drives the joystick too) or **Off**.
 
 ## Difficulty levels
 

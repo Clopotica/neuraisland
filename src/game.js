@@ -55,6 +55,10 @@ export class Game {
     this.govTimer = 0;
     this.slowScale = Infinity; // resolution scale that was last too slow
     this.slowAt = -1e9;
+    this.lastScaleChange = -1e9;
+    this.cap30 = false; // draw every other screen refresh on devices that can't keep 60 fps
+    this.slowChecks = 0;
+    this.running = false;
     this.contextLost = false;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 1500);
@@ -106,18 +110,21 @@ export class Game {
     this.render3D = true;
     this.kickHintShown = false;
 
-    const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
-    if (isTouch) {
-      this.hud.touch.hidden = false;
-      this.hud.layer.classList.add('touch-on');
-      this.input.attachTouch(this.hud.touch, {
-        map: () => this.mode === 'play' && this.openMapPanel(),
-        nitro: () => this.mode === 'play' && this.toggleNitro(),
-      });
-    }
-    this.touch = isTouch;
+    // Touch screens: phones, tablets and interactive whiteboards. Some whiteboards act like a
+    // mouse, so the on-screen controls can also be switched on by hand in the Menu.
+    this.touchDevice =
+      matchMedia('(pointer: coarse)').matches || matchMedia('(any-pointer: coarse)').matches || 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    this.input.attachTouch(this.hud.touch, {
+      map: () => this.mode === 'play' && this.openMapPanel(),
+      nitro: () => this.mode === 'play' && this.toggleNitro(),
+    });
+    this.setScreenControls(state.screenControls);
 
-    window.addEventListener('resize', () => this.resize());
+    window.addEventListener('resize', () => {
+      this.setBasePixelRatio();
+      this.renderer.setPixelRatio(this.basePixelRatio * this.pixelScale);
+      this.resize();
+    });
     this.watchContext();
     bus.on('novoice', (lang) => {
       if (this.noVoiceShown) return;
@@ -140,23 +147,44 @@ export class Game {
     window.addEventListener('keydown', unlock);
   }
 
-  resize() {
+  // Changing the canvas size wipes it (it shows black until the next drawing), so the
+  // picture is drawn again right away. `redraw = false` when a frame is drawn next anyway.
+  resize(redraw = true) {
     const w = window.innerWidth;
     const h = window.innerHeight;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.world.particles.setScale(h);
+    if (redraw && this.running && !this.contextLost) this.renderer.render(this.scene, this.camera);
+  }
+
+  // Sharpness is limited by pixels. Big screens (interactive whiteboards, 4K monitors) start
+  // around 3 million pixels instead of many millions that no school graphics chip can draw.
+  setBasePixelRatio() {
+    const high = state.quality !== 'low';
+    const dpr = window.devicePixelRatio || 1;
+    const cap = this.touchDevice ? 1.3 : 1.75;
+    const budget = Math.max(0.5, Math.sqrt(3.2e6 / Math.max(1, window.innerWidth * window.innerHeight)));
+    this.basePixelRatio = high ? Math.min(dpr, cap, budget) : this.gpu.software ? 0.5 : Math.min(1, dpr * 0.75, budget);
+  }
+
+  // On-screen joystick and buttons: 'auto' (touch screens), 'on' (also for whiteboards that
+  // act like a mouse) or 'off'.
+  setScreenControls(mode = 'auto') {
+    const on = mode === 'on' || (mode !== 'off' && this.touchDevice);
+    this.touch = on;
+    this.hud.touch.hidden = !on;
+    this.hud.layer.classList.toggle('touch-on', on);
+    this.input.setTouchMode(on, mode === 'on');
   }
 
   applyQuality() {
     const high = state.quality !== 'low';
-    const dpr = window.devicePixelRatio || 1;
-    const cap = this.touch ? 1.3 : 1.75;
-    this.basePixelRatio = high ? Math.min(dpr, cap) : this.gpu.software ? 0.5 : Math.min(1, dpr * 0.75);
+    this.setBasePixelRatio();
     this.renderer.setPixelRatio(this.basePixelRatio * this.pixelScale);
-    // Phones and older graphics cards (WebGL 1) get a smaller shadow map.
-    const shadowSize = this.touch || !this.webgl2 ? 1024 : 2048;
+    // Touch devices and older graphics cards (WebGL 1) get a smaller shadow map.
+    const shadowSize = this.touchDevice || !this.webgl2 ? 1024 : 2048;
     const sun = this.world.env.sun;
     if (sun.shadow.mapSize.x !== shadowSize) {
       sun.shadow.mapSize.set(shadowSize, shadowSize);
@@ -175,9 +203,12 @@ export class Game {
     this.resize();
   }
 
-  // Keep the game playable on slow computers: lower the resolution when frames are slow,
-  // raise it again when there is room. A steady 30 fps also tries a sharper picture,
-  // but not a resolution that was too slow in the last minute. Runs only while visible.
+  // Keep the game smooth on slow computers. Runs only while visible, before the frame is
+  // drawn, so a resolution change never shows an empty (black) canvas.
+  // 1. A device that can't keep 60 fps draws every other screen refresh: an even 30 fps
+  //    looks much smoother than frames jumping between 20 and 60 fps.
+  // 2. Then the resolution goes down when even 30 fps is missed, and up when there is room,
+  //    but not back to a resolution that was too slow recently, and at most every 3 seconds.
   governFrameRate(rawMs) {
     // The title flyover shows the whole island at once; judge the speed in play only.
     if (this.mode === 'title' || document.visibilityState !== 'visible' || rawMs > 1000) return;
@@ -185,25 +216,36 @@ export class Game {
     this.govTimer += rawMs / 1000;
     if (this.govTimer < 1.5) return;
     this.govTimer = 0;
+    if (!this.cap30) {
+      this.slowChecks = this.frameMs > 21 ? this.slowChecks + 1 : 0;
+      if (this.slowChecks >= 3) {
+        this.cap30 = true;
+        this.frameMs = 34;
+        document.body.classList.add('lowfx');
+        return;
+      }
+    }
+    const now = performance.now() / 1000;
+    if (now - this.lastScaleChange < 3) return;
     // Never go below 0.4 of a CSS pixel: blurrier than that is worse than a slower frame.
     // Software drawing is limited by the number of objects more than by pixels, so it stops at 0.5.
     const minScale = Math.min(1, (this.gpu.software ? 0.5 : 0.4) / this.basePixelRatio);
-    const now = performance.now() / 1000;
     let next = this.pixelScale;
-    if (this.frameMs > 45 && this.pixelScale > minScale) {
+    if (this.cap30 && this.frameMs > 40 && this.pixelScale > minScale) {
       next = Math.max(minScale, this.pixelScale * 0.85);
       this.slowScale = this.pixelScale;
       this.slowAt = now;
     } else if (this.pixelScale < 1) {
       const up = Math.min(1, this.pixelScale * 1.15);
-      const steady = this.frameMs < 36 && (up < this.slowScale * 0.98 || now - this.slowAt > 60);
-      if (this.frameMs < 20 || steady) next = up;
+      const room = this.cap30 ? this.frameMs < 35.5 && (up < this.slowScale * 0.98 || now - this.slowAt > 90) : this.frameMs < 20;
+      if (room) next = up;
     }
     if (next !== this.pixelScale) {
       this.pixelScale = next;
+      this.lastScaleChange = now;
       this.renderer.setPixelRatio(this.basePixelRatio * this.pixelScale);
-      this.resize();
-    } else if (this.frameMs > 60 && state.quality !== 'low' && !state.qualityChosen) {
+      this.resize(false);
+    } else if (this.cap30 && this.frameMs > 60 && state.quality !== 'low' && !state.qualityChosen) {
       state.quality = 'low';
       save();
       this.applyQuality();
@@ -283,13 +325,17 @@ export class Game {
       console.warn(err);
     }
     let last = performance.now();
+    this.running = true;
     const loop = (now) => {
+      requestAnimationFrame(loop);
+      // Even pacing on slow devices: skip every other screen refresh (see governFrameRate).
+      if (this.cap30 && now - last < 1000 / 30 - 4) return;
       const raw = now - last;
       const dt = Math.min(0.05, raw / 1000);
       last = now;
       try {
-        this.tick(dt);
         if (this.render3D) this.governFrameRate(raw);
+        this.tick(dt);
       } catch (err) {
         if (!this.loggedError) {
           console.error(err);
@@ -298,7 +344,6 @@ export class Game {
         this.loggedError = true;
         this.input.endFrame();
       }
-      requestAnimationFrame(loop);
     };
     requestAnimationFrame(loop);
     document.getElementById('loading')?.classList.add('gone');
@@ -309,9 +354,10 @@ export class Game {
     unlockAudio();
     this.hud.show(true);
     // Start judging the frame rate fresh, after a short settling time.
-    this.frameMs = 30;
+    this.frameMs = 20;
     this.govTimer = -2;
     this.slowScale = Infinity;
+    this.slowChecks = 0;
     if (this.gpu.software && !state.qualityChosen) this.hud.toast('🐢 ' + t(/Windows/.test(navigator.userAgent) ? 'gpuSlow' : 'gpuSlowOther'), null, 10000);
     if (this.touch && window.innerHeight > window.innerWidth) this.hud.toast('📱 ' + t('rotateHint'), null, 7000);
     this.updateGoal();

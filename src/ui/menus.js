@@ -212,6 +212,11 @@ export function openMenu(game) {
         save();
         game.applyQuality();
       }), t('graphicsNote')),
+      row(t('screenControls'), segCtl([['auto', t('scAuto')], ['on', t('on')], ['off', t('off')]], state.screenControls || 'auto', (v) => {
+        state.screenControls = v;
+        save();
+        game.setScreenControls(v);
+      }), t('screenControlsNote')),
       // The browser draws 3D without the graphics card: tell the grown-ups how to switch it on.
       game.gpu.software && /Windows/.test(navigator.userAgent) ? h('div', { class: 'gpu-tip' }, '💡 ', t('gpuTip')) : null,
     );

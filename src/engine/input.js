@@ -10,7 +10,8 @@ export class Input {
     this.joy = { x: 0, y: 0, active: false };
     this.enabled = true;
     this.lastLookTime = -10;
-    this.touchMode = false;
+    this.touchMode = false; // on-screen joystick and buttons are active
+    this.touchMouse = false; // ...and the mouse drives them too (whiteboards that act like a mouse)
     this.dragging = false;
 
     window.addEventListener('keydown', (e) => {
@@ -26,7 +27,7 @@ export class Input {
     let lastY = 0;
     let pid = null;
     canvas.addEventListener('pointerdown', (e) => {
-      if (e.pointerType === 'touch') return; // touch handled by the touch layer
+      if (this.onScreen(e)) return; // handled by the on-screen controls
       this.dragging = true;
       pid = e.pointerId;
       lastX = e.clientX;
@@ -64,10 +65,21 @@ export class Input {
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
-  // Touch controls: a floating joystick on the left half, camera drag on the right half,
-  // two fingers on the right half pinch to zoom, and big buttons for jump / use / kick / map / nitro.
+  // Is this pointer for the on-screen controls (fingers and pens, and the mouse when asked)?
+  onScreen(e) {
+    return this.touchMode && (e.pointerType !== 'mouse' || this.touchMouse);
+  }
+
+  setTouchMode(on, mouseToo) {
+    this.touchMode = on;
+    this.touchMouse = on && !!mouseToo;
+    if (!on && this.resetTouch) this.resetTouch();
+  }
+
+  // On-screen controls: a floating joystick on the left, camera drag on the right, two fingers
+  // on the right pinch to zoom, and big buttons for jump / use / kick / map / nitro.
+  // Built on pointer events, so fingers, pens and mice (on some whiteboards) all work.
   attachTouch(root, handlers) {
-    this.touchMode = true;
     const stick = root.querySelector('.joy');
     const knob = root.querySelector('.joy-knob');
     let joyId = null;
@@ -82,78 +94,79 @@ export class Input {
       knob.style.transform = '';
       stick.classList.remove('on');
     };
-    const onStart = (e) => {
-      for (const t of e.changedTouches) {
-        if (t.clientX < window.innerWidth * 0.45 && joyId === null) {
-          joyId = t.identifier;
-          cx = t.clientX;
-          cy = t.clientY;
-          stick.style.left = cx - 70 + 'px';
-          stick.style.top = cy - 70 + 'px';
-          stick.classList.add('on');
-          this.joy.active = true;
-          this.joy.x = 0;
-          this.joy.y = 0;
-        } else if (cams.size < 2) {
-          cams.set(t.identifier, { x: t.clientX, y: t.clientY });
-          if (cams.size === 2) {
-            const [a, b] = [...cams.values()];
-            pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
-          }
-        }
-      }
+    const releaseStick = () => {
+      joyId = null;
+      this.joy.x = 0;
+      this.joy.y = 0;
+      this.joy.active = false;
+      resetStick();
+    };
+    this.resetTouch = () => {
+      releaseStick();
+      cams.clear();
+    };
+    this.canvas.addEventListener('pointerdown', (e) => {
+      if (!this.onScreen(e)) return;
       e.preventDefault();
-    };
-    const onMove = (e) => {
-      let handled = false;
-      for (const t of e.changedTouches) {
-        if (t.identifier === joyId) {
-          let dx = t.clientX - cx;
-          let dy = t.clientY - cy;
-          const l = Math.hypot(dx, dy);
-          if (l > R) {
-            dx = (dx / l) * R;
-            dy = (dy / l) * R;
-          }
-          knob.style.transform = `translate(${dx}px, ${dy}px)`;
-          this.joy.x = dx / R;
-          this.joy.y = -dy / R;
-          handled = true;
-        } else if (cams.has(t.identifier)) {
-          const c = cams.get(t.identifier);
-          if (cams.size === 1) {
-            this.lookX += (t.clientX - c.x) * 1.4;
-            this.lookY += (t.clientY - c.y) * 1.4;
-            this.lastLookTime = performance.now() / 1000;
-          }
-          c.x = t.clientX;
-          c.y = t.clientY;
-          handled = true;
+      try {
+        this.canvas.setPointerCapture(e.pointerId);
+      } catch {
+        /* ignore */
+      }
+      if (e.clientX < window.innerWidth * 0.45 && joyId === null) {
+        joyId = e.pointerId;
+        cx = e.clientX;
+        cy = e.clientY;
+        stick.style.left = cx - 70 + 'px';
+        stick.style.top = cy - 70 + 'px';
+        stick.classList.add('on');
+        this.joy.active = true;
+        this.joy.x = 0;
+        this.joy.y = 0;
+      } else if (cams.size < 2) {
+        cams.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (cams.size === 2) {
+          const [a, b] = [...cams.values()];
+          pinchDist = Math.hypot(a.x - b.x, a.y - b.y);
         }
       }
-      if (cams.size === 2) {
-        const [a, b] = [...cams.values()];
-        const d = Math.hypot(a.x - b.x, a.y - b.y);
-        this.zoom += (pinchDist - d) * 0.03;
-        pinchDist = d;
+    });
+    this.canvas.addEventListener('pointermove', (e) => {
+      if (e.pointerId === joyId) {
+        let dx = e.clientX - cx;
+        let dy = e.clientY - cy;
+        const l = Math.hypot(dx, dy);
+        if (l > R) {
+          dx = (dx / l) * R;
+          dy = (dy / l) * R;
+        }
+        knob.style.transform = `translate(${dx}px, ${dy}px)`;
+        this.joy.x = dx / R;
+        this.joy.y = -dy / R;
+      } else if (cams.has(e.pointerId)) {
+        const c = cams.get(e.pointerId);
+        if (cams.size === 1) {
+          this.lookX += (e.clientX - c.x) * 1.4;
+          this.lookY += (e.clientY - c.y) * 1.4;
+          this.lastLookTime = performance.now() / 1000;
+        }
+        c.x = e.clientX;
+        c.y = e.clientY;
+        if (cams.size === 2) {
+          const [a, b] = [...cams.values()];
+          const d = Math.hypot(a.x - b.x, a.y - b.y);
+          this.zoom += (pinchDist - d) * 0.03;
+          pinchDist = d;
+        }
       }
-      if (handled) e.preventDefault();
-    };
+    });
     const onEnd = (e) => {
-      for (const t of e.changedTouches) {
-        if (t.identifier === joyId) {
-          joyId = null;
-          this.joy.x = 0;
-          this.joy.y = 0;
-          this.joy.active = false;
-          resetStick();
-        } else cams.delete(t.identifier);
-      }
+      if (e.pointerId === joyId) releaseStick();
+      else cams.delete(e.pointerId);
     };
-    this.canvas.addEventListener('touchstart', onStart, { passive: false });
-    window.addEventListener('touchmove', onMove, { passive: false });
-    window.addEventListener('touchend', onEnd);
-    window.addEventListener('touchcancel', onEnd);
+    this.canvas.addEventListener('pointerup', onEnd);
+    this.canvas.addEventListener('pointercancel', onEnd);
+    this.canvas.addEventListener('lostpointercapture', onEnd);
     // Buttons use pointer events, so they work with fingers, pens and mice alike.
     for (const [sel, code] of [['.tb-jump', 'Space'], ['.tb-use', 'KeyE'], ['.tb-kick', 'KeyF']]) {
       const b = root.querySelector(sel);

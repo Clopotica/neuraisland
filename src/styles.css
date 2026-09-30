@@ -163,6 +163,8 @@ code { font-family: ui-monospace, Consolas, monospace; background: var(--paper-2
 @keyframes toast-out { to { transform: translateY(-10px); opacity: 0; } }
 
 .fade { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; transition: opacity 0.35s; }
+/* Slow devices: a blurred backdrop behind every window costs a lot and can flicker. */
+.lowfx .overlay { backdrop-filter: none; -webkit-backdrop-filter: none; }
 .fade.on { opacity: 1; }
 
 /* touch controls */

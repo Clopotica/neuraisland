@@ -13,6 +13,7 @@ function defaults() {
     qualityChosen: false, // true once the player picks graphics themselves
     voiceEn: '',
     voiceRo: '',
+    screenControls: 'auto', // on-screen joystick: 'auto' | 'on' | 'off'
     started: false,
     introDone: false,
     progress: {}, // stationId -> { seen:[], exps:[], passed, best, attempts, visited }
@@ -56,7 +57,7 @@ export function save() {
 }
 
 export function resetProgress() {
-  const keep = { lang: state.lang, sound: state.sound, tts: state.tts, quality: state.quality, qualityChosen: state.qualityChosen, voiceEn: state.voiceEn, voiceRo: state.voiceRo };
+  const keep = { lang: state.lang, sound: state.sound, tts: state.tts, quality: state.quality, qualityChosen: state.qualityChosen, voiceEn: state.voiceEn, voiceRo: state.voiceRo, screenControls: state.screenControls };
   Object.assign(state, defaults(), keep);
   save();
 }
