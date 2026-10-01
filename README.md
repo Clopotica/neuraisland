@@ -19,7 +19,17 @@ npm run dev
 
 Then open http://localhost:5173. The development server runs the source in `src/` (its entry is `src/index.html`). `npm run build` bundles everything into the playable `index.html` at the repository root.
 
-Progress is saved automatically in the browser (localStorage).
+Progress is saved automatically in the browser (localStorage), separately for each account.
+
+## Classroom login (Clopotica edition)
+
+Enter one of the 20 assigned accounts, user01 through user20, with its supplied password. Usernames ignore surrounding spaces and letter case; passwords are case-sensitive. Login appears before the 3D game starts, in English or Romanian. Use **Log out / Deconectare** on the title screen or in the game menu to switch accounts.
+
+The current account is remembered in sessionStorage across reloads in the same tab. Progress is stored locally under an account-specific key; it does not sync between devices. The old shared save is left untouched and is not assigned to any account. If browser storage is blocked, you can still play, but progress and login may not survive a reload.
+
+This is a simple offline classroom gate for the existing static GitHub Pages game, **not secure server-side authentication**. Only SHA-256 password digests are included in src/auth.js, but downloaded code and browser storage can be inspected or changed. Do not use this gate to protect sensitive data. Password verification requires Web Crypto (HTTPS, localhost, or the downloaded file in a compatible browser).
+
+After changing the login or account digests, run npm run build and commit the root index.html as well.
 
 ## Publish on GitHub Pages
 

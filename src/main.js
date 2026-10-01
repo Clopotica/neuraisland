@@ -1,14 +1,14 @@
 import './styles.css';
-import { load } from './state.js';
+import { load, state } from './state.js';
 import { Game } from './game.js';
+import { restoreSession } from './auth.js';
+import { loginScreen } from './ui/login.js';
 
-load();
-
-function boot() {
+async function boot() {
   try {
     const game = new Game();
     window.__game = game;
-    game.start();
+    await game.start();
   } catch (err) {
     console.error(err);
     const el = document.getElementById('loading');
@@ -21,4 +21,11 @@ function boot() {
 
 // Wait for the fonts (if online) so 3D signs render with the right typeface.
 const fontsReady = document.fonts && document.fonts.ready ? Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, 1500))]) : Promise.resolve();
-fontsReady.then(() => setTimeout(boot, 0));
+async function start() {
+  if (!restoreSession()) await loginScreen();
+  const language = state.lang;
+  if (!load()) state.lang = language;
+  await fontsReady;
+  await boot();
+}
+start();

@@ -1,4 +1,5 @@
 import { h, clear, shuffle, md } from './dom.js';
+import { getUser, logout } from '../auth.js';
 import { L, t, levelName } from '../i18n.js';
 import { state, sp, save, hasSave, resetProgress } from '../state.js';
 import { bipFace, face } from './avatars.js';
@@ -17,6 +18,22 @@ function flag(lang) {
     : h('span', { class: 'flag', style: { background: '#012169', position: 'relative' } }, h('i', { style: { background: 'linear-gradient(90deg, transparent 40%, #fff 40%, #fff 44%, #c8102e 44%, #c8102e 56%, #fff 56%, #fff 60%, transparent 60%), linear-gradient(0deg, transparent 35%, #fff 35%, #fff 40%, #c8102e 40%, #c8102e 60%, #fff 60%, #fff 65%, transparent 65%)' } }));
 }
 
+function accountRow(game) {
+  const button = h('button', { class: 'btn small', type: 'button' }, t('logout'));
+  button.addEventListener('click', () => {
+    if (game.mode !== 'title' && game.player) {
+      const { pos, yaw } = game.player;
+      state.pos = { x: pos.x, z: pos.z, yaw };
+    }
+    save();
+    stopSpeaking();
+    setAmbience(false);
+    logout();
+    window.location.reload();
+  });
+  return h('div', { class: 'set-row account-row' }, h('span', null, t('account') + ': ' + getUser()), button);
+}
+
 // ---------- Title screen ----------
 export function titleScreen(game) {
   return new Promise((resolve) => {
@@ -31,6 +48,7 @@ export function titleScreen(game) {
       clear(screen);
       const logo = h('div', { class: 'logo' }, h('div', { class: 'bip', html: bipFace(120, 'happy') }), h('h1', null, t('gameTitle')), h('div', { class: 'tag' }, t('tagline')));
       const panel = h('div', { class: 'title-panel' });
+      panel.appendChild(accountRow(game));
       const langRow = h('div', { class: 'flags' });
       for (const lg of ['en', 'ro']) {
         const b = h('button', { class: 'flag-btn' + (state.lang === lg ? ' on' : ''), type: 'button' }, flag(lg), lg === 'en' ? 'English' : 'Română');
@@ -172,6 +190,7 @@ export function openMenu(game) {
   const render = () => {
     clear(m.body);
     m.panel.querySelector('h2').textContent = t('menu');
+    m.body.appendChild(accountRow(game));
     const row = (lab, control, sub) => h('div', { class: 'set-row' }, h('div', null, h('div', { class: 'lab' }, lab), sub ? h('div', { class: 'sub' }, sub) : null), control);
     const segCtl = (opts, val, on) => {
       const el = h('div', { class: 'seg' });
