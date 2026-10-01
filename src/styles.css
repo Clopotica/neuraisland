@@ -295,7 +295,7 @@ input[type='range']::-webkit-slider-runnable-track { height: 10px; border-radius
 input[type='range']::-webkit-slider-thumb { -webkit-appearance: none; width: 26px; height: 26px; margin-top: -10px; border-radius: 50%; background: var(--accent); border: 3px solid var(--ink); }
 input[type='range']::-moz-range-track { height: 6px; border-radius: 99px; background: var(--paper-3); border: 2.5px solid var(--ink); }
 input[type='range']::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: var(--accent); border: 3px solid var(--ink); }
-input[type='text'] { font-family: var(--display); font-size: 20px; padding: 12px 14px; border: 3px solid var(--ink); border-radius: 14px; background: #fff; width: 100%; color: var(--ink); }
+input[type='text'], input[type='password'] { font-family: var(--display); font-size: 20px; padding: 12px 14px; border: 3px solid var(--ink); border-radius: 14px; background: #fff; width: 100%; color: var(--ink); }
 select { font-family: var(--display); font-size: 16px; padding: 8px 10px; border: 3px solid var(--ink); border-radius: 12px; background: #fff; color: var(--ink); }
 
 /* sorting cards used in several experiments */
@@ -508,3 +508,13 @@ select { font-family: var(--display); font-size: 16px; padding: 8px 10px; border
 
 .exp-card.static { cursor: default; background: #fffbe6; border-style: dashed; }
 .exp-card.static:hover { transform: none; }
+
+/* ---------- classroom login ---------- */
+.login-screen { background: #cdeaf7; }
+.login-card { max-width: 480px; }
+.login-panel { display: flex; flex-direction: column; gap: 16px; }
+.login-panel .field, .login-panel p { margin: 0; }
+.login-panel input { width: 100%; min-width: 0; }
+.login-panel .seg { align-self: center; }
+.login-error { color: #a82028; background: var(--bad-bg); padding: 10px 12px; border-radius: 10px; }
+.account-row { flex-wrap: wrap; gap: 12px; }

@@ -1,5 +1,6 @@
 // Saved game state + a tiny event bus.
-const KEY = 'neura-island-save-v1';
+import { getUser } from './auth.js';
+const key = () => getUser() ? 'neura-island-save-v1:' + getUser() : null;
 
 function defaults() {
   return {
@@ -30,15 +31,17 @@ export const state = defaults();
 
 export function hasSave() {
   try {
-    return !!localStorage.getItem(KEY);
+    return !!key() && !!localStorage.getItem(key());
   } catch {
     return false;
   }
 }
 
 export function load() {
+  Object.assign(state, defaults());
+  if (!key()) return false;
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(key());
     if (!raw) return false;
     const data = JSON.parse(raw);
     Object.assign(state, defaults(), data);
@@ -50,7 +53,7 @@ export function load() {
 
 export function save() {
   try {
-    localStorage.setItem(KEY, JSON.stringify(state));
+    if (key()) localStorage.setItem(key(), JSON.stringify(state));
   } catch {
     /* storage can be blocked; the game still works for this session */
   }
